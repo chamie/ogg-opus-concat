@@ -367,6 +367,5 @@ setCustomDebugLogger((...args: any) => console.debug(...args));
 
 ### License
 
-[0BSD](LICENSE) — free for any project, open or closed source.  
-Just keep the copyright line:  
-© 2025 Chamie (https://github.com/chamie)
+[MIT](LICENSE)
+© 2026 Chamie (https://github.com/chamie)
