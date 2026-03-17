@@ -253,10 +253,9 @@ Browsers produce Opus audio in different containers:
 |---------------|----------------------|-----------|
 | Firefox       | `.opus` (Opus/Ogg)   | ✅ |
 | Chrome / Edge | `.webm` (Opus/WebM)  | ✅ |
-| Safari        | `.aac` (AAC/MP4)     | ❌ |
+| Safari        | `.webm` (Opus/WebM)  | ✅ |
 
-This library accepts **both Opus formats**.
-For Safari you can use other helper libraries like `opus-media-recorder` to produce Opus chunks first.
+This library accepts **both Opus container formats** and works across all major browsers.
 
 It extracts the encoded Opus frames directly from either container and appends them into a single **Ogg/Opus (`.opus`) accumulator file** — without decoding or re-encoding.
 The Opus audio data is copied bit-for-bit. Only container metadata is rewritten.
@@ -352,7 +351,6 @@ Your input file might have metadata before the Ogg stream (ID3 tags, etc.). This
 ### "Unknown audio format" error
 The library supports Ogg Opus (`.opus`) and WebM Opus (`.webm`) containers. If you're getting this error:
 - Check that your file is actually Opus-encoded (not AAC, MP3, etc.)
-- Safari's MediaRecorder outputs AAC in MP4 - use `opus-media-recorder` polyfill first
 
 ### Debugging
 Enable debug logging to see what's happening:
