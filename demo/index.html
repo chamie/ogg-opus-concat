@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Opus File Concatenator</title>
+	<style>
+		*,
+		*::before,
+		*::after {
+			box-sizing: border-box;
+		}
+
+		body {
+			font-family: system-ui, -apple-system, sans-serif;
+			max-width: 720px;
+			margin: 0 auto;
+			padding: 24px;
+			color: #1a1a1a;
+		}
+
+		h1 {
+			margin-bottom: 24px;
+		}
+
+		h2 {
+			font-size: 1.2em;
+			margin: 20px 0 8px;
+		}
+
+		button {
+			cursor: pointer;
+		}
+
+		button:disabled {
+			cursor: not-allowed;
+			opacity: .6;
+		}
+
+		.record-btn {
+			padding: 12px 24px;
+			font-size: 16px;
+			color: #fff;
+			border: none;
+			border-radius: 6px;
+			margin-bottom: 20px;
+		}
+
+		.record-btn.idle {
+			background: #3b82f6;
+		}
+
+		.record-btn.active {
+			background: #ef4444;
+		}
+
+		.recording-indicator {
+			margin-left: 12px;
+			color: #ef4444;
+			font-weight: bold;
+		}
+
+		.file-list {
+			display: flex;
+			flex-direction: column;
+			gap: 6px;
+			margin: 8px 0;
+		}
+
+		.file-row {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+		}
+
+		.file-row .name {
+			min-width: 180px;
+		}
+
+		.file-row .size {
+			color: #666;
+			min-width: 80px;
+		}
+
+		.file-row button {
+			background: none;
+			border: none;
+			font-size: 18px;
+			padding: 2px 6px;
+		}
+
+		.concat-btn {
+			margin-top: 16px;
+			padding: 10px 20px;
+			font-size: 15px;
+			background: #10b981;
+			color: #fff;
+			border: none;
+			border-radius: 6px;
+		}
+
+		.error {
+			color: #dc2626;
+			margin: 12px 0;
+			font-weight: 500;
+		}
+
+		.info {
+			margin-top: 24px;
+			padding: 16px;
+			background: #f3f4f6;
+			border-radius: 8px;
+		}
+
+		.info ul {
+			margin: 8px 0 0 20px;
+			line-height: 1.7;
+		}
+
+		#upload-label {
+			display: inline-block;
+			padding: 8px 16px;
+			background: #e5e7eb;
+			border-radius: 6px;
+			cursor: pointer;
+		}
+
+		#upload-label:hover {
+			background: #d1d5db;
+		}
+
+		#file-input {
+			display: none;
+		}
+	</style>
+</head>
+
+<body>
+	<h1>Opus File Concatenator</h1>
+
+	<div>
+		<h2>Record Audio</h2>
+		<button id="record-btn" class="record-btn idle">🎤 Start Recording</button>
+		<span id="recording-indicator" class="recording-indicator" hidden>● Recording…</span>
+	</div>
+
+	<div>
+		<h2>Or Upload Files</h2>
+		<label id="upload-label">
+			<span>Click to select Opus files</span>
+			<input id="file-input" type="file" accept=".opus,.ogg,.webm,audio/ogg,audio/webm" multiple />
+		</label>
+	</div>
+
+	<div id="files-section" hidden>
+		<h2>Selected Files (<span id="file-count">0</span>)</h2>
+		<div id="file-list" class="file-list"></div>
+	</div>
+
+	<div id="error" class="error" hidden></div>
+
+	<button id="concat-btn" class="concat-btn" disabled>Concatenate Files</button>
+
+	<div class="info">
+		<p><strong>How it works:</strong></p>
+		<ul>
+			<li>Uses DataView for proper binary data handling</li>
+			<li>Skips OpusTags from first file (optional metadata)</li>
+			<li>Skips both headers from subsequent files</li>
+			<li>Renumbers page sequences continuously</li>
+			<li>Adjusts granule positions cumulatively</li>
+			<li>Clears all EOS flags for append-only compatibility</li>
+			<li>Uses serial number from first file for deterministic output</li>
+			<li>Recalculates CRC32 checksums</li>
+		</ul>
+	</div>
+
+	<script src="../dist/opus-accumulator.global.js"></script>
+	<script>
+		"use strict";
+		var { concatChunks, setDebug, setDebugCategories, setCustomDebugLogger } = OpusAccumulator;
+
+		setDebug(true);
+
+		/* ---- state ---- */
+		var files = [];
+		var isRecording = false;
+		var processing = false;
+		var mediaRecorder = null;
+
+		var mimeType = MediaRecorder.isTypeSupported("audio/ogg; codecs=opus")
+			? "audio/ogg; codecs=opus"
+			: "audio/webm; codecs=opus";
+
+		/* ---- DOM refs ---- */
+		var recordBtn = document.getElementById("record-btn");
+		var recordingIndicator = document.getElementById("recording-indicator");
+		var fileInput = document.getElementById("file-input");
+		var filesSection = document.getElementById("files-section");
+		var fileCountSpan = document.getElementById("file-count");
+		var fileListEl = document.getElementById("file-list");
+		var errorEl = document.getElementById("error");
+		var concatBtn = document.getElementById("concat-btn");
+
+		/* ---- helpers ---- */
+		function showError(msg) {
+			errorEl.textContent = msg;
+			errorEl.hidden = false;
+		}
+		function clearError() {
+			errorEl.hidden = true;
+			errorEl.textContent = "";
+		}
+
+		function refreshUI() {
+			filesSection.hidden = files.length === 0;
+			fileCountSpan.textContent = String(files.length);
+
+			fileListEl.innerHTML = "";
+			files.forEach(function (file, i) {
+				var row = document.createElement("div");
+				row.className = "file-row";
+
+				var name = document.createElement("span");
+				name.className = "name";
+				name.textContent = file.name;
+
+				var size = document.createElement("span");
+				size.className = "size";
+				size.textContent = (file.size / 1024).toFixed(1) + " KB";
+
+				var dlBtn = document.createElement("button");
+				dlBtn.title = "Download file";
+				dlBtn.textContent = "⬇️";
+				dlBtn.addEventListener("click", function () { saveFile(file, file.name); });
+
+				var rmBtn = document.createElement("button");
+				rmBtn.title = "Remove file";
+				rmBtn.textContent = "❎";
+				rmBtn.addEventListener("click", function () {
+					files = files.filter(function (_, idx) { return idx !== i; });
+					refreshUI();
+				});
+
+				row.append(name, size, dlBtn, rmBtn);
+				fileListEl.appendChild(row);
+			});
+
+			concatBtn.disabled = files.length < 2 || processing;
+			concatBtn.textContent = processing ? "Processing…" : "Concatenate Files";
+
+			recordBtn.disabled = processing;
+			if (isRecording) {
+				recordBtn.textContent = "⏹ Stop Recording";
+				recordBtn.className = "record-btn active";
+				recordingIndicator.hidden = false;
+			} else {
+				recordBtn.textContent = "🎤 Start Recording";
+				recordBtn.className = "record-btn idle";
+				recordingIndicator.hidden = true;
+			}
+		}
+
+		function saveFile(blob, filename) {
+			var url = URL.createObjectURL(blob);
+			var a = document.createElement("a");
+			a.href = url;
+			a.download = filename;
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			URL.revokeObjectURL(url);
+		}
+
+		/* ---- recording ---- */
+		function startRecording() {
+			console.debug("Starting recording…");
+			navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+				var recorder = new MediaRecorder(stream, { mimeType: mimeType });
+				var chunks = [];
+
+				recorder.ondataavailable = function (e) {
+					console.debug("dataavailable event:", e.data.size);
+					if (e.data.size > 0) chunks.push(e.data);
+				};
+
+				recorder.onstop = function () {
+					console.debug("stop event, chunks:", chunks.length);
+					var blob = new Blob(chunks, { type: mimeType });
+					var timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+					var file = new File([blob], "recording-" + timestamp + ".opus", { type: mimeType });
+					console.debug("Recording stopped, created file:", file);
+					files.push(file);
+					stream.getTracks().forEach(function (t) { t.stop(); });
+					refreshUI();
+				};
+
+				recorder.onerror = function (e) {
+					console.error("MediaRecorder error:", e);
+					showError("Recording error occurred");
+				};
+
+				console.debug("Recorder state before start:", recorder.state);
+				recorder.start(1000);
+				console.debug("Recorder state after start:", recorder.state);
+
+				mediaRecorder = recorder;
+				isRecording = true;
+				clearError();
+				refreshUI();
+			}).catch(function (err) {
+				console.error("Error accessing microphone:", err);
+				showError("Error accessing microphone: " + (err instanceof Error ? err.message : String(err)));
+			});
+		}
+
+		function stopRecording() {
+			if (mediaRecorder && isRecording) {
+				mediaRecorder.stop();
+				isRecording = false;
+				mediaRecorder = null;
+				refreshUI();
+			}
+		}
+
+		/* ---- concatenation ---- */
+		function handleConcatenate() {
+			if (files.length < 2) {
+				showError("Please select at least 2 files to concatenate");
+				return;
+			}
+
+			processing = true;
+			clearError();
+			refreshUI();
+
+			Promise.all(
+				files.map(function (f) {
+					return f.arrayBuffer().then(function (buf) { return new Uint8Array(buf); });
+				})
+			).then(function (arrays) {
+				console.debug("All files read, starting concatenation…", { arrays });
+				var result = concatChunks(arrays);
+				console.debug("Concatenation result:", result);
+				var blob = new Blob([new Uint8Array(result)], { type: "audio/ogg; codecs=opus" });
+				saveFile(blob, "concatenated.opus");
+			}).catch(function (err) {
+				showError("Error concatenating files: " + (err instanceof Error ? err.message : String(err)));
+				console.error(err);
+			}).finally(function () {
+				processing = false;
+				refreshUI();
+			});
+		}
+
+		/* ---- event listeners ---- */
+		recordBtn.addEventListener("click", function () {
+			if (isRecording) stopRecording();
+			else startRecording();
+		});
+
+		fileInput.addEventListener("change", function (e) {
+			files = Array.from(e.target.files || []);
+			clearError();
+			refreshUI();
+		});
+
+		concatBtn.addEventListener("click", handleConcatenate);
+
+		/* initial render */
+		refreshUI();
+	</script>
+</body>
+
+</html>

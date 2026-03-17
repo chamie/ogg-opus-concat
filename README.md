@@ -200,6 +200,23 @@ const result = concatChunks(recordedChunks);
 </script>
 ```
 
+### Plain `<script>` tag (no bundler)
+
+The library also ships as a global IIFE build that can be used without modules or bundlers:
+
+```html
+<script src="https://unpkg.com/opus-accumulator/dist/opus-accumulator.global.js"></script>
+<script>
+  var result = OpusAccumulator.concatChunks(chunks);
+</script>
+```
+
+All exports (`concatChunks`, `prepareAccumulator`, `appendToAccumulator`, `setDebug`, etc.) are available on the `OpusAccumulator` global object.
+
+## Demo
+
+A working demo page is included at [`demo/index.html`](demo/index.html). It lets you record audio clips or upload Opus files and concatenate them — all client-side, using the IIFE build.
+
 ## Use cases
 
 This library is useful if you are building:

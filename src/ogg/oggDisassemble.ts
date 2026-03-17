@@ -1,5 +1,6 @@
 import { OpusFrame, OpusStream } from "../types/opus";
 import { findOggStart, parseOggPage } from "./oggParsing";
+import { getOpusSamples } from "../opus/opusParsing";
 import debug from "../common/debugger";
 
 export const disassembleOgg = (data: Uint8Array, isChunk: boolean): OpusStream => {
@@ -41,23 +42,47 @@ export const disassembleOgg = (data: Uint8Array, isChunk: boolean): OpusStream =
             // Skip OpusTags
             debug.debugLog(`Skipping OpusTags page`);
         } else {
-            // Data page - extract frame(s)
-            const bodyOffset = 27 + page.segments;
-            const bodyEnd = bodyOffset + page.bodySize;
+            // Data page - extract individual Opus packets using segment table
+            const segmentTableOffset = offset + 27;
+            const bodyOffset = segmentTableOffset + page.segments;
 
-            // Calculate samples for this page
-            const currentGranule = page.granulePosition;
-            const samples = Number(currentGranule - lastGranule);
-            debug.debugLog(`Data page ${pageCount}: granule=${currentGranule}, samples=${samples}, size=${page.bodySize}`);
+            // Parse segment table to find packet boundaries
+            // A packet ends when a segment value is < 255
+            let packetStart = bodyOffset;
+            let packetSize = 0;
 
-            // For simplicity, treat entire page body as one frame
-            // (In reality, pages can contain multiple frames with lacing)
-            frames.push({
-                data: data.subarray(offset + bodyOffset, offset + bodyEnd),
-                samples: samples,
-            });
+            for (let s = 0; s < page.segments; s++) {
+                const segmentSize = data[segmentTableOffset + s];
+                packetSize += segmentSize;
 
-            lastGranule = currentGranule;
+                if (segmentSize < 255) {
+                    // End of packet
+                    if (packetSize > 0) {
+                        const packetData = data.subarray(packetStart, packetStart + packetSize);
+                        const samples = getOpusSamples(packetData);
+                        debug.debugLog(`Data page ${pageCount}, packet: offset=${packetStart}, size=${packetSize}, samples=${samples}`);
+                        frames.push({
+                            data: packetData,
+                            samples,
+                        });
+                    }
+                    packetStart += packetSize;
+                    packetSize = 0;
+                }
+            }
+
+            // Handle packet that ends exactly on a page boundary (last segment was 255)
+            if (packetSize > 0) {
+                const packetData = data.subarray(packetStart, packetStart + packetSize);
+                const samples = getOpusSamples(packetData);
+                debug.debugLog(`Data page ${pageCount}, spanning packet: offset=${packetStart}, size=${packetSize}, samples=${samples}`);
+                frames.push({
+                    data: packetData,
+                    samples,
+                });
+            }
+
+            lastGranule = page.granulePosition;
         }
 
         offset += page.pageSize;

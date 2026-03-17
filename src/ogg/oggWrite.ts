@@ -10,7 +10,7 @@ export const createMinimalOpusTagsPage = (
     serialNumber: number,
     pageSequence: number,
 ): Uint8Array => {
-    const vendorString = "ogg-opus-concat";
+    const vendorString = "opus-accumulator"; // Can be any string, not important for decoding
     const vendorLength = vendorString.length;
 
     // OpusTags structure:
@@ -160,25 +160,36 @@ export const createOggPage = (options: {
     serialNumber: number;
     pageSequence: number;
     body: Uint8Array;
+    packetSizes?: number[];
 }): Uint8Array => {
-    const { headerType, granulePosition, serialNumber, pageSequence, body } = options;
+    const { headerType, granulePosition, serialNumber, pageSequence, body, packetSizes } = options;
     
     // Calculate segment table
-    const bodySize = body.length;
-    const fullSegments = Math.floor(bodySize / 255);
-    const lastSegmentSize = bodySize % 255;
-    const segments = fullSegments + (lastSegmentSize > 0 ? 1 : 0);
+    const segmentEntries: number[] = [];
+    if (packetSizes && packetSizes.length > 0) {
+        // Build segment table with proper packet boundaries
+        for (const size of packetSizes) {
+            const fullSegs = Math.floor(size / 255);
+            for (let i = 0; i < fullSegs; i++) {
+                segmentEntries.push(255);
+            }
+            segmentEntries.push(size % 255);
+        }
+    } else {
+        // Single packet: treat entire body as one packet
+        const bodySize = body.length;
+        const fullSegs = Math.floor(bodySize / 255);
+        for (let i = 0; i < fullSegs; i++) {
+            segmentEntries.push(255);
+        }
+        segmentEntries.push(bodySize % 255);
+    }
     
-    const segmentTable = new Uint8Array(segments);
-    for (let i = 0; i < fullSegments; i++) {
-        segmentTable[i] = 255;
-    }
-    if (lastSegmentSize > 0) {
-        segmentTable[fullSegments] = lastSegmentSize;
-    }
+    const segments = segmentEntries.length;
+    const segmentTable = new Uint8Array(segmentEntries);
     
     // Create page
-    const pageSize = 27 + segments + bodySize;
+    const pageSize = 27 + segments + body.length;
     const page = new Uint8Array(pageSize);
     const view = new DataView(page.buffer);
     
@@ -286,6 +297,7 @@ export const wrapOpusPacketsInOgg = (
                 serialNumber,
                 pageSequence,
                 body: pageBody,
+                packetSizes: currentPagePackets.map(p => p.length),
             });
             
             pages.push(page);
@@ -316,6 +328,7 @@ export const wrapOpusPacketsInOgg = (
             serialNumber,
             pageSequence,
             body: pageBody,
+            packetSizes: currentPagePackets.map(p => p.length),
         });
         
         pages.push(page);

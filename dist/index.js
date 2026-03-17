@@ -56,6 +56,75 @@ var parseOggPage = (data, offset) => {
   };
 };
 
+// src/opus/opusParsing.ts
+var getOpusSamples = (opusPacket) => {
+  const toc = opusPacket[0];
+  const config = toc >> 3 & 31;
+  const c = toc & 3;
+  const frameSizes = [
+    480,
+    960,
+    1920,
+    2880,
+    // 0-3:   SILK-only NB (10/20/40/60ms)
+    480,
+    960,
+    1920,
+    2880,
+    // 4-7:   SILK-only MB
+    480,
+    960,
+    1920,
+    2880,
+    // 8-11:  SILK-only WB
+    480,
+    960,
+    // 12-13: Hybrid SWB (10/20ms)
+    480,
+    960,
+    // 14-15: Hybrid FB (10/20ms)
+    120,
+    240,
+    480,
+    960,
+    // 16-19: CELT-only NB (2.5/5/10/20ms)
+    120,
+    240,
+    480,
+    960,
+    // 20-23: CELT-only WB
+    120,
+    240,
+    480,
+    960,
+    // 24-27: CELT-only SWB
+    120,
+    240,
+    480,
+    960
+    // 28-31: CELT-only FB
+  ];
+  const samplesPerFrame = frameSizes[config] || 960;
+  let frameCount;
+  switch (c) {
+    case 0:
+      frameCount = 1;
+      break;
+    case 1:
+      frameCount = 2;
+      break;
+    case 2:
+      frameCount = 2;
+      break;
+    case 3:
+      frameCount = opusPacket.length >= 2 ? opusPacket[1] & 63 : 1;
+      break;
+    default:
+      frameCount = 1;
+  }
+  return samplesPerFrame * frameCount;
+};
+
 // src/ogg/oggDisassemble.ts
 var disassembleOgg = (data, isChunk) => {
   const oggStart = isChunk ? 0 : findOggStart(data);
@@ -90,16 +159,37 @@ var disassembleOgg = (data, isChunk) => {
     } else if (pageCount === 1 && !isChunk) {
       debugger_default.debugLog(`Skipping OpusTags page`);
     } else {
-      const bodyOffset = 27 + page.segments;
-      const bodyEnd = bodyOffset + page.bodySize;
-      const currentGranule = page.granulePosition;
-      const samples = Number(currentGranule - lastGranule);
-      debugger_default.debugLog(`Data page ${pageCount}: granule=${currentGranule}, samples=${samples}, size=${page.bodySize}`);
-      frames.push({
-        data: data.subarray(offset + bodyOffset, offset + bodyEnd),
-        samples
-      });
-      lastGranule = currentGranule;
+      const segmentTableOffset = offset + 27;
+      const bodyOffset = segmentTableOffset + page.segments;
+      let packetStart = bodyOffset;
+      let packetSize = 0;
+      for (let s = 0; s < page.segments; s++) {
+        const segmentSize = data[segmentTableOffset + s];
+        packetSize += segmentSize;
+        if (segmentSize < 255) {
+          if (packetSize > 0) {
+            const packetData = data.subarray(packetStart, packetStart + packetSize);
+            const samples = getOpusSamples(packetData);
+            debugger_default.debugLog(`Data page ${pageCount}, packet: offset=${packetStart}, size=${packetSize}, samples=${samples}`);
+            frames.push({
+              data: packetData,
+              samples
+            });
+          }
+          packetStart += packetSize;
+          packetSize = 0;
+        }
+      }
+      if (packetSize > 0) {
+        const packetData = data.subarray(packetStart, packetStart + packetSize);
+        const samples = getOpusSamples(packetData);
+        debugger_default.debugLog(`Data page ${pageCount}, spanning packet: offset=${packetStart}, size=${packetSize}, samples=${samples}`);
+        frames.push({
+          data: packetData,
+          samples
+        });
+      }
+      lastGranule = page.granulePosition;
     }
     offset += page.pageSize;
     pageCount++;
@@ -166,6 +256,17 @@ ${Array.from(data.subarray(offset, offset + width)).map((b) => b.toString(16).pa
   };
 };
 var readId = (data, offset) => readVINT(data, offset, true);
+var readUint = (data, offset, length) => {
+  let value = 0;
+  for (let i = 0; i < length; i++) {
+    value = value << 8 | data[offset + i];
+  }
+  return value >>> 0;
+};
+var readFloat = (data, offset, length) => {
+  const view = new DataView(data.buffer, data.byteOffset + offset, length);
+  return length === 4 ? view.getFloat32(0) : view.getFloat64(0);
+};
 var decodeString = (data, offset, length) => new TextDecoder("utf-8").decode(data.subarray(offset, offset + length)).replace(/\0/g, "");
 var decodeSignedVint = (value, width) => {
   const range = (BigInt(1) << BigInt(7 * width - 1)) - BigInt(1);
@@ -227,60 +328,6 @@ var processSimpleBlock = (data, lacingType) => {
   return frames;
 };
 
-// src/opus/opusParsing.ts
-var getOpusSamples = (opusPacket) => {
-  const toc = opusPacket[0];
-  const config = toc >> 3 & 31;
-  const frameSizes = [
-    480,
-    960,
-    1920,
-    2880,
-    // SILK-only (NB)
-    480,
-    960,
-    1920,
-    2880,
-    // SILK-only (MB)
-    480,
-    960,
-    1920,
-    2880,
-    // SILK-only (WB)
-    480,
-    960,
-    1920,
-    2880,
-    // Hybrid (SWB)
-    480,
-    960,
-    1920,
-    2880,
-    // Hybrid (FB)
-    120,
-    240,
-    480,
-    960,
-    // CELT-only (NB)
-    120,
-    240,
-    480,
-    960,
-    // CELT-only (WB)
-    120,
-    240,
-    480,
-    960,
-    // CELT-only (SWB)
-    120,
-    240,
-    480,
-    960
-    // CELT-only (FB)
-  ];
-  return frameSizes[config] || 960;
-};
-
 // src/webm/webmDisassemble.ts
 var debugLog2 = (...args) => debugger_default.debugLog("disassembler", ...args);
 var disassembleWebM = (data, isChunk) => {
@@ -337,8 +384,7 @@ var extractFramesAndMeta = (buffer, isChunk) => {
       // --- LEAF ELEMENTS WITH REQUIRED DATA (Process) ---
       // Metadata needed to interpret Opus frames:
       case EBML_IDS.TrackNumber:
-        const trackNo = readVINT(buffer, dataStart);
-        currentTrackEntryNo = Number(trackNo.value);
+        currentTrackEntryNo = readUint(buffer, dataStart, Number(elementSize.value));
         offset = dataEnd;
         debugLog2(`Found TrackEntry number: ${currentTrackEntryNo}`);
         break;
@@ -357,7 +403,7 @@ var extractFramesAndMeta = (buffer, isChunk) => {
           debugLog2(`Skipping ChannelCount for non-Opus TrackEntry number: ${currentTrackEntryNo}`);
           break;
         }
-        channels = Number(readVINT(buffer, dataStart).value);
+        channels = readUint(buffer, dataStart, Number(elementSize.value));
         offset = dataEnd;
         debugLog2(`Processed ChannelCount: ${channels} for TrackEntry number: ${currentTrackEntryNo}`);
         break;
@@ -367,7 +413,7 @@ var extractFramesAndMeta = (buffer, isChunk) => {
           debugLog2(`Skipping SamplingFrequency for non-Opus TrackEntry number: ${currentTrackEntryNo}`);
           break;
         }
-        sampleRate = Number(readVINT(buffer, dataStart).value);
+        sampleRate = readFloat(buffer, dataStart, Number(elementSize.value));
         offset = dataEnd;
         debugLog2(`Processed SamplingFrequency: ${sampleRate} for TrackEntry number: ${currentTrackEntryNo}`);
         break;
@@ -472,7 +518,7 @@ var calculateCRC = (data) => {
 
 // src/ogg/oggWrite.ts
 var createMinimalOpusTagsPage = (serialNumber, pageSequence) => {
-  const vendorString = "ogg-opus-concat";
+  const vendorString = "opus-accumulator";
   const vendorLength = vendorString.length;
   const bodySize = 8 + 4 + vendorLength + 4;
   const body = new Uint8Array(bodySize);
@@ -540,19 +586,27 @@ var createOpusHeadPage = (serialNumber, channels = 2, preskip = 312, sampleRate 
   });
 };
 var createOggPage = (options) => {
-  const { headerType, granulePosition, serialNumber, pageSequence, body } = options;
-  const bodySize = body.length;
-  const fullSegments = Math.floor(bodySize / 255);
-  const lastSegmentSize = bodySize % 255;
-  const segments = fullSegments + (lastSegmentSize > 0 ? 1 : 0);
-  const segmentTable = new Uint8Array(segments);
-  for (let i = 0; i < fullSegments; i++) {
-    segmentTable[i] = 255;
+  const { headerType, granulePosition, serialNumber, pageSequence, body, packetSizes } = options;
+  const segmentEntries = [];
+  if (packetSizes && packetSizes.length > 0) {
+    for (const size of packetSizes) {
+      const fullSegs = Math.floor(size / 255);
+      for (let i = 0; i < fullSegs; i++) {
+        segmentEntries.push(255);
+      }
+      segmentEntries.push(size % 255);
+    }
+  } else {
+    const bodySize = body.length;
+    const fullSegs = Math.floor(bodySize / 255);
+    for (let i = 0; i < fullSegs; i++) {
+      segmentEntries.push(255);
+    }
+    segmentEntries.push(bodySize % 255);
   }
-  if (lastSegmentSize > 0) {
-    segmentTable[fullSegments] = lastSegmentSize;
-  }
-  const pageSize = 27 + segments + bodySize;
+  const segments = segmentEntries.length;
+  const segmentTable = new Uint8Array(segmentEntries);
+  const pageSize = 27 + segments + body.length;
   const page = new Uint8Array(pageSize);
   const view = new DataView(page.buffer);
   page[0] = 79;
@@ -613,7 +667,8 @@ var assembleOgg = (stream, options) => {
         granulePosition: granule,
         serialNumber,
         pageSequence,
-        body: pageBody
+        body: pageBody,
+        packetSizes: currentPageData.map((d) => d.length)
       });
       pages.push(page);
       pageSequence++;
@@ -639,7 +694,8 @@ var assembleOgg = (stream, options) => {
       granulePosition: granule,
       serialNumber,
       pageSequence,
-      body: pageBody
+      body: pageBody,
+      packetSizes: currentPageData.map((d) => d.length)
     });
     pages.push(page);
     pageCount++;

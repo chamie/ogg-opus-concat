@@ -1,6 +1,6 @@
 import { OpusFrame, OpusStream } from "../types/opus";
 import { EBML_IDS, LACING_TYPES } from "./EBMLTypes";
-import { decodeString, processSimpleBlock, readId, readVINT } from "./webmParse";
+import { decodeString, processSimpleBlock, readFloat, readId, readUint, readVINT } from "./webmParse";
 import debug from "../common/debugger";
 import { getOpusSamples } from "../opus/opusParsing";
 
@@ -88,8 +88,7 @@ export const extractFramesAndMeta = (buffer: Uint8Array, isChunk: boolean): { fr
             // Metadata needed to interpret Opus frames:
             case EBML_IDS.TrackNumber:
                 // Note current TrackNumber (inside TrackEntry, for CodecID lookup)
-                const trackNo = readVINT(buffer, dataStart); // Value is a VINT
-                currentTrackEntryNo = Number(trackNo.value);
+                currentTrackEntryNo = readUint(buffer, dataStart, Number(elementSize.value));
                 offset = dataEnd;
                 debugLog(`Found TrackEntry number: ${currentTrackEntryNo}`);
                 break;
@@ -111,7 +110,7 @@ export const extractFramesAndMeta = (buffer: Uint8Array, isChunk: boolean): { fr
                     debugLog(`Skipping ChannelCount for non-Opus TrackEntry number: ${currentTrackEntryNo}`);
                     break;
                 }
-                channels = Number(readVINT(buffer, dataStart).value);
+                channels = readUint(buffer, dataStart, Number(elementSize.value));
                 offset = dataEnd;
                 debugLog(`Processed ChannelCount: ${channels} for TrackEntry number: ${currentTrackEntryNo}`);
                 break;
@@ -123,7 +122,7 @@ export const extractFramesAndMeta = (buffer: Uint8Array, isChunk: boolean): { fr
                     debugLog(`Skipping SamplingFrequency for non-Opus TrackEntry number: ${currentTrackEntryNo}`);
                     break;
                 }
-                sampleRate = Number(readVINT(buffer, dataStart).value);
+                sampleRate = readFloat(buffer, dataStart, Number(elementSize.value));
                 offset = dataEnd;
                 debugLog(`Processed SamplingFrequency: ${sampleRate} for TrackEntry number: ${currentTrackEntryNo}`);
                 break;

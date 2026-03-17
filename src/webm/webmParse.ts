@@ -46,6 +46,21 @@ export const readVINT = (data: Uint8Array, offset: number, isId = false): { valu
 export const readId = (data: Uint8Array, offset: number) =>
     readVINT(data, offset, true);
 
+/** Read a plain big-endian unsigned integer of a given byte length. */
+export const readUint = (data: Uint8Array, offset: number, length: number): number => {
+    let value = 0;
+    for (let i = 0; i < length; i++) {
+        value = (value << 8) | data[offset + i];
+    }
+    return value >>> 0; // ensure unsigned
+};
+
+/** Read an IEEE 754 float (big-endian) of 4 or 8 bytes. */
+export const readFloat = (data: Uint8Array, offset: number, length: number): number => {
+    const view = new DataView(data.buffer, data.byteOffset + offset, length);
+    return length === 4 ? view.getFloat32(0) : view.getFloat64(0);
+};
+
 export const decodeString = (data: Uint8Array, offset: number, length: number): string =>
     new TextDecoder("utf-8").decode(data.subarray(offset, offset + length))
         .replace(/\0/g, ''); // EBML strings are sometimes null-terminated (0x00) inside the buffer.

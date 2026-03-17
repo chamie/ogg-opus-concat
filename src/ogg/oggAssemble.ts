@@ -68,6 +68,7 @@ export const assembleOgg = (stream: OpusStream, options: {
                 serialNumber,
                 pageSequence,
                 body: pageBody,
+                packetSizes: currentPageData.map(d => d.length),
             });
 
             pages.push(page);
@@ -101,6 +102,7 @@ export const assembleOgg = (stream: OpusStream, options: {
             serialNumber,
             pageSequence,
             body: pageBody,
+            packetSizes: currentPageData.map(d => d.length),
         });
 
         pages.push(page);
