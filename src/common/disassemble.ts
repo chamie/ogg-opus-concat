@@ -5,7 +5,7 @@ import { AudioFormat } from "./audioTypes";
 import { detectFormat } from "./formatDetection";
 import debug from "./debugger";
 
-const debugLog = (...args: any[]) => debug.debugLog('disassembler', ...args);
+export const debugLog = (...args: any[]) => debug.debugLog('disassembler', ...args);
 
 /**
  * Format-agnostic disassembly: detects format and extracts Opus frames

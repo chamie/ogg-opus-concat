@@ -1,7 +1,7 @@
 import { OpusFrame, OpusStream } from "../types/opus";
 import { findOggStart, parseOggPage } from "./oggParsing";
 import { getOpusSamples } from "../opus/opusParsing";
-import debug from "../common/debugger";
+import { debugLog } from "../common/disassemble";
 
 export const disassembleOgg = (data: Uint8Array, isChunk: boolean): OpusStream => {
     const oggStart = isChunk ? 0 : findOggStart(data);
@@ -10,7 +10,7 @@ export const disassembleOgg = (data: Uint8Array, isChunk: boolean): OpusStream =
     }
 
     if (oggStart > 0) {
-        debug.debugLog(`Skipping ${oggStart} bytes of non-Ogg data at start`);
+        debugLog(`Skipping ${oggStart} bytes of non-Ogg data at start`);
     }
 
     const frames: OpusFrame[] = [];
@@ -25,7 +25,7 @@ export const disassembleOgg = (data: Uint8Array, isChunk: boolean): OpusStream =
     while (offset < data.length) {
         const page = parseOggPage(data, offset);
         if (!page) {
-            debug.debugLog(`Failed to parse Ogg page at offset ${offset}`);
+            debugLog(`Failed to parse Ogg page at offset ${offset}`);
             break;
         }
 
@@ -37,10 +37,10 @@ export const disassembleOgg = (data: Uint8Array, isChunk: boolean): OpusStream =
             const view = new DataView(data.buffer, data.byteOffset + offset + bodyOffset);
             preskip = view.getUint16(10, true);
             sampleRate = view.getUint32(12, true);
-            debug.debugLog(`OpusHead: channels=${channels}, preskip=${preskip}, sampleRate=${sampleRate}, serial=${serialNumber}`);
+            debugLog(`OpusHead: channels=${channels}, preskip=${preskip}, sampleRate=${sampleRate}, serial=${serialNumber}`);
         } else if (pageCount === 1 && !isChunk) {
             // Skip OpusTags
-            debug.debugLog(`Skipping OpusTags page`);
+            debugLog(`Skipping OpusTags page`);
         } else {
             // Data page - extract individual Opus packets using segment table
             const segmentTableOffset = offset + 27;
@@ -60,7 +60,7 @@ export const disassembleOgg = (data: Uint8Array, isChunk: boolean): OpusStream =
                     if (packetSize > 0) {
                         const packetData = data.subarray(packetStart, packetStart + packetSize);
                         const samples = getOpusSamples(packetData);
-                        debug.debugLog(`Data page ${pageCount}, packet: offset=${packetStart}, size=${packetSize}, samples=${samples}`);
+                        debugLog(`Data page ${pageCount}, packet: offset=${packetStart}, size=${packetSize}, samples=${samples}`);
                         frames.push({
                             data: packetData,
                             samples,
@@ -75,7 +75,7 @@ export const disassembleOgg = (data: Uint8Array, isChunk: boolean): OpusStream =
             if (packetSize > 0) {
                 const packetData = data.subarray(packetStart, packetStart + packetSize);
                 const samples = getOpusSamples(packetData);
-                debug.debugLog(`Data page ${pageCount}, spanning packet: offset=${packetStart}, size=${packetSize}, samples=${samples}`);
+                debugLog(`Data page ${pageCount}, spanning packet: offset=${packetStart}, size=${packetSize}, samples=${samples}`);
                 frames.push({
                     data: packetData,
                     samples,
@@ -89,7 +89,7 @@ export const disassembleOgg = (data: Uint8Array, isChunk: boolean): OpusStream =
         pageCount++;
     }
 
-    debug.debugLog(`Disassembled ${frames.length} frames from Ogg, total granule: ${lastGranule}`);
+    debugLog(`Disassembled ${frames.length} frames from Ogg, total granule: ${lastGranule}`);
 
     return {
         frames,

@@ -5,7 +5,7 @@ const exported: {
     customLogger: ((...args: any[]) => void) | null;
     /** Empty set means all categories enabled */
     enabledCategories: Set<DebugCategory>;
-    debugLog: (...args: any[]) => void;
+    debugLog: (category: DebugCategory, ...args: any[]) => void;
 } = {
     isDebug: false,
     customLogger: null,

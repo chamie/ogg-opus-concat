@@ -2,7 +2,7 @@ import { OpusStream } from "../types/opus";
 import { createMinimalOpusTagsPage, createOggPage, createOpusHeadPage } from "./oggWrite";
 import debug from "../common/debugger";
 
-const { debugLog } = debug;
+export const debugLog = (...args: any[]) => debug.debugLog('assembler', ...args);
 
 /**
  * Assemble frames into appendable Ogg Opus file
