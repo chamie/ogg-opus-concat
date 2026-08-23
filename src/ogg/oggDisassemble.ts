@@ -1,9 +1,25 @@
-import { OpusFrame, OpusStream } from "../types/opus";
+import { OpusFrame, OpusStream, RawOpusStream } from "../types/opus";
 import { findOggStart, parseOggPage } from "./oggParsing";
 import { getOpusSamples } from "../opus/opusParsing";
 import { debugLog } from "../common/disassemble";
 
-export const disassembleOgg = (data: Uint8Array, isChunk: boolean): OpusStream => {
+
+export function disassembleOgg(
+    data: Uint8Array,
+    isChunk: false,
+): OpusStream;
+export function disassembleOgg(
+    data: Uint8Array,
+    isChunk: true,
+): RawOpusStream;
+export function disassembleOgg(
+    data: Uint8Array,
+    isChunk: boolean,
+): OpusStream | RawOpusStream;
+export function disassembleOgg(
+    data: Uint8Array,
+    isChunk: boolean,
+): OpusStream | RawOpusStream {
     const oggStart = isChunk ? 0 : findOggStart(data);
     if (oggStart === -1) {
         throw new Error('No Ogg data found');

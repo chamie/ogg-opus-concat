@@ -1,4 +1,4 @@
-import { OpusFrame, OpusStream } from "../types/opus";
+import { OpusFrame, OpusStream, RawOpusStream } from "../types/opus";
 import { EBML_IDS, LACING_TYPES } from "./EBMLTypes";
 import { decodeString, processSimpleBlock, readFloat, readId, readUint, readVINT } from "./webmParse";
 import debug from "../common/debugger";
@@ -6,7 +6,16 @@ import { getOpusSamples } from "../opus/opusParsing";
 
 const debugLog = (...args: any[]) => debug.debugLog('disassembler', ...args);
 
-export const disassembleWebM = (data: Uint8Array, isChunk: boolean): OpusStream => {
+export function disassembleWebM(data: Uint8Array, isChunk: false): OpusStream;
+export function disassembleWebM(data: Uint8Array, isChunk: true): RawOpusStream;
+export function disassembleWebM(
+  data: Uint8Array,
+  isChunk: boolean,
+): OpusStream | RawOpusStream;
+export function disassembleWebM(
+  data: Uint8Array,
+  isChunk: boolean,
+): OpusStream | RawOpusStream {
     debugLog('Extracting WebM frames');
     const { frames: webMFrames, channels, sampleRate } = extractFramesAndMeta(data, isChunk);
     debugLog(`Extracted ${webMFrames.length} WebM frames`);

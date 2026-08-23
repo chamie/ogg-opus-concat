@@ -10,3 +10,7 @@ export type OpusStream = {
     preskip: number;
     sampleRate: number;
 }
+
+
+
+export type RawOpusStream = Pick<OpusStream, 'frames'>;
