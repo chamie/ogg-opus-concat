@@ -1,8 +1,27 @@
-import { OpusStream } from "../types/opus";
+import { OpusStream, RawOpusStream } from "../types/opus";
 import { createMinimalOpusTagsPage, createOggPage, createOpusHeadPage } from "./oggWrite";
 import debug from "../common/debugger";
 
 export const debugLog = (...args: any[]) => debug.debugLog('assembler', ...args);
+
+type AssembleResult = {
+    data: Uint8Array;
+    pageCount: number;
+    finalGranule: bigint;
+};
+type DataPageOptions = {
+    serialNumber: number;
+    startingSequence: number;
+    startingGranule: bigint;
+    includeHeaders: false;
+};
+
+type HeaderOptions = {
+    includeHeaders: true;
+    serialNumber?: number;
+    startingSequence?: number;
+    startingGranule?: bigint;
+};
 
 /**
  * Assemble frames into appendable Ogg Opus file
@@ -10,22 +29,40 @@ export const debugLog = (...args: any[]) => debug.debugLog('assembler', ...args)
  * @param options 
  * @returns 
  */
-export const assembleOgg = (stream: OpusStream, options: {
-    serialNumber?: number;
-    startingSequence?: number;
-    startingGranule?: bigint;
-    includeHeaders: boolean;
-}): { data: Uint8Array; pageCount: number; finalGranule: bigint } => {
-    const serialNumber = options?.serialNumber || stream.serialNumber || Math.floor(Math.random() * 0xFFFFFFFF);
-    const includeHeaders = options?.includeHeaders === undefined ? true : options?.includeHeaders;
-    let pageSequence = options?.startingSequence === undefined ? 0 : options?.startingSequence || 0;
-    let granule = options?.startingGranule === undefined ? BigInt(0) : options?.startingGranule || BigInt(0);
+export function assembleOgg(
+    stream: RawOpusStream,
+    options: DataPageOptions,
+): AssembleResult;
+
+export function assembleOgg(
+    stream: OpusStream,
+    options: HeaderOptions,
+): AssembleResult;
+
+export function assembleOgg(
+    stream: RawOpusStream | OpusStream,
+    options: DataPageOptions | HeaderOptions,
+): AssembleResult {
+    const includeHeaders = options.includeHeaders;
+
+    const serialNumber =
+        options.serialNumber ??
+        ("serialNumber" in stream ? stream.serialNumber : undefined) ??
+        Math.floor(Math.random() * 0xFFFFFFFF);
+
+    let pageSequence = options.startingSequence ?? 0;
+
+    let granule = options.startingGranule ?? BigInt(0);
 
     const pages: Uint8Array[] = [];
     let pageCount = 0;
 
     // Add headers if requested
     if (includeHeaders) {
+        if (!("channels" in stream)) {
+            throw new Error("Cannot include headers for a raw Opus stream");
+        }
+        
         debugLog(`Creating OpusHead: serial=${serialNumber}, channels=${stream.channels}, preskip=${stream.preskip}, sampleRate=${stream.sampleRate}`);
 
         pages.push(createOpusHeadPage(serialNumber, stream.channels, stream.preskip, stream.sampleRate));
@@ -119,6 +156,6 @@ export const assembleOgg = (stream: OpusStream, options: {
     }
 
     debugLog(`Assembled ${pageCount} pages, final granule: ${granule}, total size: ${data.length} bytes`);
-    
+
     return { data, pageCount, finalGranule: granule };
 };

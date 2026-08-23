@@ -7,14 +7,19 @@ const debugLog = (...args: any[]) => debug.debugLog('parser', ...args);
  * Read EBML variable-length integer (VINT)
  * First byte encodes both the length and part of the value
  */
-export const readVINT = (data: Uint8Array, offset: number, isId = false): { value: bigint, size: number, isUnknown: boolean } => {
+export const readVINT = (data: Uint8Array, offset: number, isId = false): { value: bigint, size: number, isUnknown: boolean } | null => {
+    if (offset >= data.length) {
+        debugLog(`Offset ${offset} is out of bounds (data length: ${data.length})`);
+        return null;
+    }
     let firstByte = data[offset];
 
     // 1. Determine width
     const width = Math.clz32(firstByte) - 24 + 1; // Number of leading zero bits + 1
 
     if (width < 1) {
-        throw new Error("Invalid EBML VINT width");
+        debugLog(`Invalid EBML VINT width at offset ${offset}`);
+        return null;
     }
 
     // 2. Clear the marker bit if not an ID
@@ -26,6 +31,10 @@ export const readVINT = (data: Uint8Array, offset: number, isId = false): { valu
     let value = BigInt(firstByte);
 
     // 3. Append subsequent bytes
+    if (offset + width > data.length) {
+        debugLog(`Unexpected end of data while reading VINT at offset ${offset} (need ${width} bytes, have ${data.length - offset})`);
+        return null;
+    }
     for (let i = 1; i < width; i++) {
         value = (value << BigInt(8)) | BigInt(data[offset + i]);
     }
@@ -45,6 +54,8 @@ export const readVINT = (data: Uint8Array, offset: number, isId = false): { valu
 
 export const readId = (data: Uint8Array, offset: number) =>
     readVINT(data, offset, true);
+
+type VINTResult = NonNullable<ReturnType<typeof readVINT>>;
 
 /** Read a plain big-endian unsigned integer of a given byte length. */
 export const readUint = (data: Uint8Array, offset: number, length: number): number => {
@@ -101,14 +112,24 @@ export const processSimpleBlock = (data: Uint8Array, lacingType: number): Uint8A
                 break;
             case LACING_TYPES.EBML:
                 // First size is absolute
-                let { value: firstSize, size: firstSizeLen } = readVINT(data, offset);
+                const firstSizeResult = readVINT(data, offset);
+                if (!firstSizeResult) {
+                    debugLog(`Truncated EBML lacing header at offset ${offset}`);
+                    return [];
+                }
+                let { value: firstSize, size: firstSizeLen } = firstSizeResult;
                 offset += firstSizeLen;
                 frameSizes.push(Number(firstSize));
 
                 // Subsequent sizes are signed differences
                 let previousSize = firstSize;
                 for (let i = 1; i < numFrames - 1; i++) {
-                    let { value: sizeDiffRaw, size: sizeDiffLen } = readVINT(data, offset);
+                    const sizeDiffResult = readVINT(data, offset);
+                    if (!sizeDiffResult) {
+                        debugLog(`Truncated EBML lacing size diff at offset ${offset}`);
+                        return [];
+                    }
+                    let { value: sizeDiffRaw, size: sizeDiffLen } = sizeDiffResult;
                     offset += sizeDiffLen;
                     // Convert from "EBML signed integer" to normal signed integer
                     const sizeDiff = BigInt(decodeSignedVint(sizeDiffRaw, sizeDiffLen));

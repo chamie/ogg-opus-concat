@@ -19,6 +19,10 @@ export function disassembleOpusFile(
   data: Uint8Array,
   chunkFormat: AudioFormat,
 ): RawOpusStream;
+export function disassembleOpusFile(
+  data: Uint8Array,
+  chunkFormat?: AudioFormat,
+): OpusStream | RawOpusStream;
 
 export function disassembleOpusFile(
   data: Uint8Array,

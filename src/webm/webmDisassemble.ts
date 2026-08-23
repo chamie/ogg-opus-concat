@@ -60,15 +60,25 @@ export const extractFramesAndMeta = (buffer: Uint8Array, isChunk: boolean): { fr
 
         const currentEnd = parentEnds[parentEnds.length - 1];
 
-        // 1. Check if we've finished the current container
-        if (offset >= currentEnd) {
+        // 1. Check if we've finished the current container or exceeded the buffer
+        if (offset >= currentEnd || offset >= buffer.length) {
             parentEnds.pop();
             continue;
         }
 
         // 2. Read element ID and size
+        //    For chunked data, the buffer may be truncated mid-element
+        //    (e.g. Chrome MediaRecorder can split at arbitrary byte boundaries)
         const id = readId(buffer, offset);
+        if (!id) {
+            debugLog(`Chunk truncated at element ID at offset ${offset}, stopping`);
+            break;
+        }
         const elementSize = readVINT(buffer, offset + id.size);
+        if (!elementSize) {
+            debugLog(`Chunk truncated at element size at offset ${offset}, stopping`);
+            break;
+        }
         const dataStart = offset + id.size + elementSize.size;
 
         // 3. Determine the end of this element
@@ -147,6 +157,10 @@ export const extractFramesAndMeta = (buffer: Uint8Array, isChunk: boolean): { fr
                 }
 
                 const blockTrackNo = readVINT(buffer, dataStart);
+                if (!blockTrackNo) {
+                    debugLog(`Truncated SimpleBlock at offset ${dataStart}, skipping`);
+                    break;
+                }
 
                 debugLog(`SimpleBlock TrackNumber: ${blockTrackNo.value}, Opus TrackNumber: ${opusTrackNo}`);
 

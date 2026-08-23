@@ -1,6 +1,6 @@
 # opus-accumulator
 
-**Incrementally append Opus audio chunks into a valid `.opus` file — without FFmpeg, WASM, or re-encoding.**
+**Incrementally append Opus audio chunks into a valid `.opus` file — including native raw Opus frames — without FFmpeg, WASM, or re-encoding.**
 
 This library allows you to **append new Ogg/Opus files or chunks to an existing `.opus` file in an append-only way**, preserving all existing bytes. It also creates one if you don't have any.
 The output file remains **valid and playable after every append**.
@@ -38,7 +38,7 @@ A **third option**:
 * No decoding or re-encoding
 * Works incrementally
 * Works offline
-* **Supports both Ogg Opus and WebM Opus** - auto-detects container format
+* **Supports Ogg Opus, WebM Opus, and native raw Opus frames**
 * Produces a valid `.opus` file at every step
 
 ## Why "accumulator"?
@@ -292,7 +292,7 @@ const { result, meta } = prepareAccumulator(existingFile);
 
 ---
 
-### `appendToAccumulator(acc: Uint8Array, chunks: Uint8Array[], accMeta: AccumulatorState): { result: Uint8Array; meta: AccumulatorState }`
+### `appendToAccumulator(acc: Uint8Array, chunks: Uint8Array[], accMeta: AccumulatorState, chunkFormat?: AudioFormat): { result: Uint8Array; meta: AccumulatorState }`
 
 Efficiently appends new chunks to an accumulator file without re-parsing it.
 
@@ -300,6 +300,7 @@ Efficiently appends new chunks to an accumulator file without re-parsing it.
 - `acc`: The accumulator file (output from `prepareAccumulator()` or previous `appendToAccumulator()`)
 - `chunks`: Array of new Opus chunks to append
 - `accMeta`: Metadata from `prepareAccumulator()` or previous `appendToAccumulator()`
+- `chunkFormat` (optional): Explicit format for headerless chunks while recording. Accepts `AudioFormat.OGG_OPUS`, `AudioFormat.WEBM`, or `AudioFormat.RAW_OPUS`
 
 **Returns:**
 - `result`: The new concatenated file
@@ -330,6 +331,26 @@ mediaRecorder.ondataavailable = async (event) => {
   
   ({ result, meta } = appendToAccumulator(result, [chunk], meta, format));
 };
+```
+
+### Working with AudioEncoder raw Opus frames
+
+`AudioEncoder` outputs encoded Opus payload bytes directly (no Ogg/WebM container).
+You can append each encoded frame as it arrives by passing `AudioFormat.RAW_OPUS`:
+
+```ts
+import { appendToAccumulator, AudioFormat } from "opus-accumulator";
+
+encoder = new AudioEncoder({
+  output: (chunk) => {
+    const frame = new Uint8Array(chunk.byteLength);
+    chunk.copyTo(frame);
+
+    ({ result, meta } = appendToAccumulator(result, [frame], meta, AudioFormat.RAW_OPUS));
+  },
+  error: (e) => console.error(e),
+});
+```
 
 ---
 
@@ -349,7 +370,7 @@ interface AccumulatorState {
 Your input file might have metadata before the Ogg stream (ID3 tags, etc.). This library automatically skips such data, but if the error persists, the file may not be a valid Opus container.
 
 ### "Unknown audio format" error
-The library supports Ogg Opus (`.opus`) and WebM Opus (`.webm`) containers. If you're getting this error:
+The library supports Ogg Opus (`.opus`), WebM Opus (`.webm`), and raw Opus frames (`AudioFormat.RAW_OPUS` with `appendToAccumulator`). If you're getting this error:
 - Check that your file is actually Opus-encoded (not AAC, MP3, etc.)
 
 ### Debugging
